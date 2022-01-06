@@ -49,6 +49,8 @@ python all_tickers.py -a openfigi_key.txt -o tickers_rtsx.json -u -m RTSX -b opt
 
 python all_tickers.py -a openfigi_key.txt -i tickers_rtsx.json -o tickers_rtsx.json -u -m RTSX --start "..."
 
-python all_tickers.py -a openfigi_key.txt -i tickers_rtsx.json tickers_x.json tickers_misx.json -o tickers.json -u
+python all_tickers.py -i tickers_rtsx.json tickers_x.json tickers_misx.json -o tickers.json
+
+python all_tickers.py -i tickers_rtsx.json tickers_rn.json tickers_rp.json tickers_rr.json tickers_rt.json tickers_rx.json -o tickers_all.json 
 
 ```

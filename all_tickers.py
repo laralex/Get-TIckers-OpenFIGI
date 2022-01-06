@@ -9,9 +9,10 @@ import tqdm
 LIMIT_REACHED_CODE = 429
 SUCCESS_CODE = 200
 DUMP_EVERY_N_ENTRIES = 800
-URL = 'https://api.openfigi.com/v3/search/'
+URL = 'https://api.openfigi.com/v3/filter/'
 HEADERS = {'Content-Type': 'text/json'}
 # MIC_CODES = ['MISX', 'RTSX', 'RUSX', 'SPIM', 'XMOS', 'XPIC', 'XSAM', 'XSIB']
+# EXCHANGE_CODES = ['RX', 'RN', 'RP', 'RR', 'RT']
 LIMIT_COOLDOWN_SEC = 16
 
 def log(tag, message, file=None):
@@ -50,7 +51,9 @@ def parse_args():
     parser.add_argument("-a", "--api_key_fp", type=str, default=None)
     parser.add_argument("-i", "--input_fp", type=str, nargs="+", default=None)
     parser.add_argument("-o", "--output_fp", type=str, default="tickers.json")
-    parser.add_argument("-m", "--mic_codes", nargs="+", default=[])
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("-m", "--mic_codes", nargs="+", default=[])
+    group.add_argument("-e", "--exchange_codes", nargs="+", default=[])
     parser.add_argument("-u", "--unlisted", action='store_true')
     parser.add_argument("-b", "--ban", nargs="+", default=[])
     parser.add_argument("--log_fp", type=str, default="log.txt")
@@ -85,7 +88,7 @@ def main():
     api_key = get_api_key(args.api_key_fp)
     if api_key is not None:
         HEADERS['X-OPENFIGI-APIKEY'] = api_key
-    log("INFO", f"API key: {api_key}")
+    log("INFO", f"ARGS {args}")
 
     if args.input_fp is not None:
         all_tickers = []
@@ -96,7 +99,7 @@ def main():
     else:
         all_tickers = []
 
-    if len(args.mic_codes) == 0:
+    if len(args.mic_codes) == 0 and len(args.exchange_codes) == 0:
         save_tickers(args.output_fp, all_tickers)
         return
 
@@ -108,16 +111,23 @@ def main():
         security_variants = request_security_variants(banned_security=args.ban)
     else:
         security_variants = [None]
-    # security_variants = ['Common Stock']
     start = args.start
     tqdm_bar = tqdm.trange(len(args.mic_codes)*len(security_variants), leave=True)
-    for mic_code in args.mic_codes:
+    use_exchange_codes = args.exchange_codes != []
+    codes_iter = args.exchange_codes if use_exchange_codes else args.mic_codes
+    for code in codes_iter:
+        if use_exchange_codes:
+            exchange_code = code
+            mic_code = None
+        else:
+            mic_code = code
+            exchange_code = None
         for security in security_variants:
             n_added = 0
             while True:
                 sys.stderr.flush()
-                response = get_response(HEADERS, mic_code=mic_code, security=security,
-                    include_unlisted=args.unlisted, start=start,
+                response = get_response(HEADERS, mic_code=mic_code, exchange_code=exchange_code,
+                    security=security, include_unlisted=args.unlisted, start=start,
                     limit_callback=lambda: log("INFO", f"Limit reached, waiting {LIMIT_COOLDOWN_SEC} sec"))
                 if 'error' in response.keys():
                     log("ERR", response['error'])
@@ -127,16 +137,18 @@ def main():
 
                 all_tickers.extend(response['data'])
                 n_added += len(response['data'])
-                log("INFO", f"{mic_code}|{security}|{len(response['data'])}|{n_added}/{response['total']}")
+                n_total = response['total'] if 'total' in response.keys() else -1
+                log("INFO", f"{code}|{security}|{len(response['data'])}|{n_added}/{n_total}")
 
-                if do_dump:
+                if do_dump: # checkpoint
                     save_tickers(args.output_fp, all_tickers)
 
                 if 'next' not in response.keys():
                     break
 
                 start = response['next']
-                log("INFO", f"{mic_code}|{security}|{n_added}/{response['total']}|{start}", file=log_file)
+                time.sleep(1.0)
+                log("INFO", f"{code}|{security}|{n_added}/{n_total}|{start}", file=log_file)
 
             start = None
             tqdm_bar.update()
